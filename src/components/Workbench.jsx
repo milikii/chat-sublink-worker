@@ -34,6 +34,7 @@ export const Workbench = () => {
             return {
                 templates: [],
                 selectedTemplateId: 'android-phone',
+                selectedTemplateBuiltIn: true,
                 templateName: '',
                 templateContent: '',
                 nodeInput: '',
@@ -83,6 +84,7 @@ export const Workbench = () => {
                         const template = await response.json();
                         this.templateName = template.name;
                         this.templateContent = template.content;
+                        this.selectedTemplateBuiltIn = Boolean(template.builtIn);
                         this.status = '';
                     } catch (error) {
                         this.error = error.message || '模板读取失败';
@@ -92,6 +94,7 @@ export const Workbench = () => {
                 newTemplate() {
                     const id = 'template-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
                     this.selectedTemplateId = id;
+                    this.selectedTemplateBuiltIn = false;
                     this.templateName = 'My Mihomo Template';
                     this.templateContent = 'mixed-port: 7890\\nmode: rule\\nproxies: "{{PROXIES}}"\\nproxy-groups:\\n  - name: PROXY\\n    type: select\\n    proxies: "{{PROXY_NAMES}}"\\nrules:\\n  - MATCH,PROXY\\n';
                     this.activeTab = 'templates';
@@ -116,10 +119,41 @@ export const Workbench = () => {
                         this.selectedTemplateId = template.id;
                         this.templateName = template.name;
                         this.templateContent = template.content;
+                        this.selectedTemplateBuiltIn = Boolean(template.builtIn);
                         this.status = '模板已保存';
                         await this.loadTemplates();
                     } catch (error) {
                         this.error = error.message || '模板保存失败';
+                    } finally {
+                        this.savingTemplate = false;
+                    }
+                },
+
+                async deleteTemplate() {
+                    if (this.selectedTemplateBuiltIn) {
+                        this.status = '内置模板不能删除';
+                        return;
+                    }
+                    if (!this.selectedTemplateId) return;
+                    const confirmed = window.confirm('删除模板 ' + this.selectedTemplateId + '？');
+                    if (!confirmed) return;
+
+                    this.savingTemplate = true;
+                    this.error = '';
+                    this.status = '';
+                    try {
+                        const deletedId = this.selectedTemplateId;
+                        const response = await fetch('/api/templates/' + encodeURIComponent(deletedId), {
+                            method: 'DELETE',
+                            headers: { 'Accept': 'application/json' }
+                        });
+                        if (!response.ok) throw new Error(await response.text());
+                        this.selectedTemplateId = 'android-phone';
+                        this.selectedTemplateBuiltIn = true;
+                        await this.loadTemplates();
+                        this.status = '模板已删除';
+                    } catch (error) {
+                        this.error = error.message || '模板删除失败';
                     } finally {
                         this.savingTemplate = false;
                     }
@@ -265,7 +299,11 @@ export const Workbench = () => {
                                 <label class="block text-sm font-medium mb-1">Mihomo YAML 模板</label>
                                 <textarea {...{ 'x-model': 'templateContent' }} spellcheck="false" class="w-full min-h-[460px] rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm font-mono leading-5"></textarea>
                             </div>
-                            <div class="flex justify-end">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <button type="button" {...{ 'x-on:click': 'deleteTemplate()', 'x-bind:disabled': 'savingTemplate || selectedTemplateBuiltIn' }} class="inline-flex items-center gap-2 rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950" title="删除自定义模板">
+                                    <i class="fas fa-trash"></i>
+                                    <span>删除模板</span>
+                                </button>
                                 <button type="button" {...{ 'x-on:click': 'saveTemplate()', 'x-bind:disabled': 'savingTemplate' }} class="inline-flex items-center gap-2 rounded-md bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60">
                                     <i class="fas" {...{ 'x-bind:class': "savingTemplate ? 'fa-spinner fa-spin' : 'fa-save'" }}></i>
                                     <span {...{ 'x-text': "savingTemplate ? '保存中' : '保存模板'" }}></span>

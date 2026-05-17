@@ -49,6 +49,7 @@ describe('Private Mihomo worker', () => {
         expect(res.headers.get('content-type')).toContain('text/html');
         const text = await res.text();
         expect(text).toContain('一次性生成');
+        expect(text).toContain('删除模板');
         expect(text).not.toContain('SingBox');
         expect(text).not.toContain('Surge');
     });
@@ -68,6 +69,45 @@ describe('Private Mihomo worker', () => {
             'windows',
             'nas-bypass-router'
         ]));
+        expect(templates.find(template => template.id === 'android-phone').builtIn).toBe(true);
+    });
+
+    it('saves and deletes a custom Mihomo template', async () => {
+        const app = createTestApp();
+        const cookie = await login(app);
+        const template = 'mixed-port: 7890\nproxies: "{{PROXIES}}"\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies: "{{PROXY_NAMES}}"\nrules:\n  - MATCH,PROXY\n';
+
+        const saveRes = await app.request('http://localhost/api/templates/my-template', {
+            method: 'PUT',
+            headers: {
+                Cookie: cookie,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: 'My Template',
+                content: template
+            })
+        });
+        expect(saveRes.status).toBe(200);
+        const saved = await saveRes.json();
+        expect(saved.builtIn).toBe(false);
+
+        const listRes = await app.request('http://localhost/api/templates', {
+            headers: { Cookie: cookie }
+        });
+        const templates = await listRes.json();
+        expect(templates.find(entry => entry.id === 'my-template').builtIn).toBe(false);
+
+        const deleteRes = await app.request('http://localhost/api/templates/my-template', {
+            method: 'DELETE',
+            headers: { Cookie: cookie }
+        });
+        expect(deleteRes.status).toBe(200);
+
+        const missingRes = await app.request('http://localhost/api/templates/my-template', {
+            headers: { Cookie: cookie }
+        });
+        expect(missingRes.status).toBe(404);
     });
 
     it('renders the Android template with US, JP, and NAS groups', async () => {

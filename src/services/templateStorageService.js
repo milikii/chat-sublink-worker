@@ -23,14 +23,15 @@ export class TemplateStorageService {
         const templates = [];
 
         for (const builtin of BUILTIN_MIHOMO_TEMPLATES) {
-            templates.push(await this.getStoredTemplate(builtin.id) ?? createBuiltinTemplate(builtin.id));
+            const stored = await this.getStoredTemplate(builtin.id);
+            templates.push(stored ? { ...stored, builtIn: true } : createBuiltinTemplate(builtin.id));
         }
 
         for (const id of ids) {
             if (builtinIds.has(id)) continue;
             const template = await this.getStoredTemplate(id);
             if (template) {
-                templates.push(template);
+                templates.push({ ...template, builtIn: false });
             }
         }
 
@@ -44,7 +45,10 @@ export class TemplateStorageService {
         const templateId = normalizeTemplateId(id || DEFAULT_TEMPLATE_ID);
         const stored = await this.getStoredTemplate(templateId);
         if (stored) {
-            return stored;
+            return {
+                ...stored,
+                builtIn: isBuiltinTemplate(templateId)
+            };
         }
         if (isBuiltinTemplate(templateId)) {
             return createBuiltinTemplate(templateId);
@@ -74,7 +78,10 @@ export class TemplateStorageService {
             ids.push(templateId);
             await kv.put(INDEX_KEY, JSON.stringify(ids));
         }
-        return template;
+        return {
+            ...template,
+            builtIn: isBuiltinTemplate(templateId)
+        };
     }
 
     async deleteTemplate(id) {
@@ -134,6 +141,7 @@ export function createBuiltinTemplate(id) {
         id: builtin.id,
         name: builtin.name,
         content: builtin.content,
+        builtIn: true,
         createdAt: now,
         updatedAt: now
     };
