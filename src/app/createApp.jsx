@@ -17,7 +17,8 @@ export function createApp(bindings = {}) {
     const runtime = normalizeRuntime(bindings);
     const templates = new TemplateStorageService(runtime.kv);
     const downloads = new OneTimeDownloadService(runtime.kv, {
-        ttlSeconds: runtime.config.oneTimeDownloadTtlSeconds
+        ttlSeconds: runtime.config.oneTimeDownloadTtlSeconds,
+        retryWindowSeconds: runtime.config.oneTimeDownloadRetryWindowSeconds
     });
     const auth = new AuthService(runtime.config);
     const app = new Hono();
@@ -141,6 +142,7 @@ export function createApp(bindings = {}) {
             return c.json({
                 downloadUrl: new URL(`/download/${oneTimeDownload.token}.yaml`, c.req.url).toString(),
                 expiresInSeconds: oneTimeDownload.expiresInSeconds,
+                retryWindowSeconds: oneTimeDownload.retryWindowSeconds,
                 expiresAt: oneTimeDownload.expiresAt,
                 filename: oneTimeDownload.filename
             });

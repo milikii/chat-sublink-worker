@@ -382,42 +382,62 @@ rules:
         expect(groups['🚀 其他订阅节点'].proxies).toEqual(['US-LA', 'JP-Tokyo']);
     });
 
-    it('creates a public one-time download link that burns after first use', async () => {
-        const app = createTestApp({
-            config: {
-                oneTimeDownloadTtlSeconds: 60
-            }
-        });
-        const cookie = await login(app);
-        const template = 'mixed-port: 7890\nproxies: "{{PROXIES}}"\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies: "{{PROXY_NAMES}}"\nrules:\n  - MATCH,PROXY\n';
+    it('creates a public one-time download link with a retry window after first use', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
 
-        const linkRes = await app.request('http://localhost/api/render-link', {
-            method: 'POST',
-            headers: {
-                Cookie: cookie,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                templateName: 'Android Phone',
-                templateContent: template,
-                nodes: 'ss://YWVzLTEyOC1nY206cGFzc0BleGFtcGxlLmNvbTo0NDM#Alpha'
-            })
-        });
+        try {
+            const app = createTestApp({
+                config: {
+                    oneTimeDownloadTtlSeconds: 60,
+                    oneTimeDownloadRetryWindowSeconds: 60
+                }
+            });
+            const cookie = await login(app);
+            const template = 'mixed-port: 7890\nproxies: "{{PROXIES}}"\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies: "{{PROXY_NAMES}}"\nrules:\n  - MATCH,PROXY\n';
 
-        expect(linkRes.status).toBe(200);
-        const payload = await linkRes.json();
-        expect(payload.downloadUrl).toMatch(/^http:\/\/localhost\/download\/[a-zA-Z0-9_-]+\.yaml$/);
-        expect(payload.expiresInSeconds).toBe(60);
+            const linkRes = await app.request('http://localhost/api/render-link', {
+                method: 'POST',
+                headers: {
+                    Cookie: cookie,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    templateName: 'Android Phone',
+                    templateContent: template,
+                    nodes: 'ss://YWVzLTEyOC1nY206cGFzc0BleGFtcGxlLmNvbTo0NDM#Alpha'
+                })
+            });
 
-        const firstDownload = await app.request(payload.downloadUrl);
-        expect(firstDownload.status).toBe(200);
-        expect(firstDownload.headers.get('content-type')).toContain('text/yaml');
-        expect(firstDownload.headers.get('content-disposition')).toContain('Android-Phone.yaml');
-        const config = yaml.load(await firstDownload.text());
-        expect(config.proxies[0].name).toBe('Alpha');
+            expect(linkRes.status).toBe(200);
+            const payload = await linkRes.json();
+            expect(payload.downloadUrl).toMatch(/^http:\/\/localhost\/download\/[a-zA-Z0-9_-]+\.yaml$/);
+            expect(payload.expiresInSeconds).toBe(60);
+            expect(payload.retryWindowSeconds).toBe(60);
 
-        const secondDownload = await app.request(payload.downloadUrl);
-        expect(secondDownload.status).toBe(410);
+            vi.setSystemTime(new Date('2026-01-01T00:00:59Z'));
+            const firstDownload = await app.request(payload.downloadUrl);
+            expect(firstDownload.status).toBe(200);
+            expect(firstDownload.headers.get('content-type')).toContain('text/yaml');
+            expect(firstDownload.headers.get('content-disposition')).toContain('Android-Phone.yaml');
+            const config = yaml.load(await firstDownload.text());
+            expect(config.proxies[0].name).toBe('Alpha');
+
+            const secondDownload = await app.request(payload.downloadUrl);
+            expect(secondDownload.status).toBe(200);
+            const retryConfig = yaml.load(await secondDownload.text());
+            expect(retryConfig.proxies[0].name).toBe('Alpha');
+
+            vi.setSystemTime(new Date('2026-01-01T00:01:01Z'));
+            const retryAfterInitialExpiry = await app.request(payload.downloadUrl);
+            expect(retryAfterInitialExpiry.status).toBe(200);
+
+            vi.setSystemTime(new Date('2026-01-01T00:02:00Z'));
+            const expiredDownload = await app.request(payload.downloadUrl);
+            expect(expiredDownload.status).toBe(410);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('rejects proxy providers so templates cannot retain subscription sources', async () => {

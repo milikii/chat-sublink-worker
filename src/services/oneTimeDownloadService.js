@@ -5,12 +5,15 @@ const DEFAULT_TTL_SECONDS = 10 * 60;
 const MIN_TTL_SECONDS = 60;
 const MAX_TTL_SECONDS = 60 * 60;
 const MAX_CONTENT_LENGTH = 512 * 1024;
-const CONSUMED_TOMBSTONE_TTL_SECONDS = 60;
+const DEFAULT_RETRY_WINDOW_SECONDS = 60;
+const MIN_RETRY_WINDOW_SECONDS = 60;
+const MAX_RETRY_WINDOW_SECONDS = 5 * 60;
 
 export class OneTimeDownloadService {
     constructor(kv, options = {}) {
         this.kv = kv;
         this.ttlSeconds = normalizeTtl(options.ttlSeconds);
+        this.retryWindowSeconds = normalizeRetryWindow(options.retryWindowSeconds);
     }
 
     ensureKv() {
@@ -30,7 +33,9 @@ export class OneTimeDownloadService {
             filename: normalizeFilename(options.filename || 'mihomo.yaml'),
             contentType: options.contentType || 'text/yaml; charset=utf-8',
             createdAt: new Date(now).toISOString(),
-            expiresAt: new Date(now + this.ttlSeconds * 1000).toISOString()
+            expiresAt: new Date(now + this.ttlSeconds * 1000).toISOString(),
+            firstConsumedAt: null,
+            finalExpiresAt: null
         };
 
         await kv.put(downloadKey(token), JSON.stringify(payload), {
@@ -40,6 +45,7 @@ export class OneTimeDownloadService {
         return {
             token,
             expiresInSeconds: this.ttlSeconds,
+            retryWindowSeconds: this.retryWindowSeconds,
             expiresAt: payload.expiresAt,
             filename: payload.filename
         };
@@ -54,12 +60,6 @@ export class OneTimeDownloadService {
             return null;
         }
 
-        await kv.put(key, JSON.stringify({
-            consumedAt: new Date().toISOString()
-        }), {
-            expirationTtl: CONSUMED_TOMBSTONE_TTL_SECONDS
-        });
-
         let payload;
         try {
             payload = JSON.parse(raw);
@@ -71,15 +71,31 @@ export class OneTimeDownloadService {
             return null;
         }
 
-        if (payload.expiresAt && Date.parse(payload.expiresAt) <= Date.now()) {
+        const now = Date.now();
+        if (!payload.firstConsumedAt && payload.expiresAt && Date.parse(payload.expiresAt) <= now) {
             return null;
+        }
+
+        if (payload.finalExpiresAt && Date.parse(payload.finalExpiresAt) <= now) {
+            await kv.delete(key);
+            return null;
+        }
+
+        if (!payload.firstConsumedAt) {
+            payload.firstConsumedAt = new Date(now).toISOString();
+            payload.finalExpiresAt = new Date(now + this.retryWindowSeconds * 1000).toISOString();
+            await kv.put(key, JSON.stringify(payload), {
+                expirationTtl: this.retryWindowSeconds
+            });
         }
 
         return {
             content: normalizeContent(payload.content),
             filename: normalizeFilename(payload.filename || 'mihomo.yaml'),
             contentType: payload.contentType || 'text/yaml; charset=utf-8',
-            expiresAt: payload.expiresAt
+            expiresAt: payload.finalExpiresAt || payload.expiresAt,
+            firstConsumedAt: payload.firstConsumedAt,
+            retryWindowSeconds: this.retryWindowSeconds
         };
     }
 }
@@ -122,6 +138,14 @@ function normalizeTtl(ttlSeconds) {
         return DEFAULT_TTL_SECONDS;
     }
     return Math.min(Math.max(Math.floor(parsed), MIN_TTL_SECONDS), MAX_TTL_SECONDS);
+}
+
+function normalizeRetryWindow(retryWindowSeconds) {
+    const parsed = Number(retryWindowSeconds);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return DEFAULT_RETRY_WINDOW_SECONDS;
+    }
+    return Math.min(Math.max(Math.floor(parsed), MIN_RETRY_WINDOW_SECONDS), MAX_RETRY_WINDOW_SECONDS);
 }
 
 function downloadKey(token) {

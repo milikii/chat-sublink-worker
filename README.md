@@ -8,7 +8,7 @@
 - 在 WebUI 编辑完整 Mihomo YAML 模板。
 - 每次需要配置时，临时粘贴节点，点击生成一次性下载链接。
 - 不生成可复用订阅链接，不保留节点，不保留订阅 URL，不做定时更新。
-- 模板保存在 KV；`POST /api/render` 不写入节点和生成结果。WebUI 使用的 `POST /api/render-link` 会把生成后的 YAML 临时写入 KV，链接首次下载后立即删除，默认 10 分钟过期。
+- 模板保存在 KV；`POST /api/render` 不写入节点和生成结果。WebUI 使用的 `POST /api/render-link` 会把生成后的 YAML 临时写入 KV，默认 10 分钟内必须首次访问；首次访问后默认保留 60 秒重试窗口，方便 Mihomo 客户端断线重试，之后失效。
 - 支持 VLESS xhttp、`packet-encoding: xudp`、ECH、VLESS encryption、xhttp padding 等 Mihomo alpha 字段的透传/渲染。
 
 ## 支持范围
@@ -71,6 +71,7 @@ proxy-groups:
 
 - `SESSION_TTL_SECONDS`: 登录有效期，默认 86400 秒。
 - `ONE_TIME_DOWNLOAD_TTL_SECONDS`: 一次性下载链接有效期，默认 600 秒，范围 60-3600 秒。
+- `ONE_TIME_DOWNLOAD_RETRY_WINDOW_SECONDS`: 首次访问后的客户端重试窗口，默认 60 秒，范围 60-300 秒。
 - `COOKIE_SECURE=true`: Node 运行时强制 Secure Cookie。
 
 生成密码哈希：
@@ -87,6 +88,7 @@ wrangler secret put ADMIN_USERNAME
 wrangler secret put ADMIN_PASSWORD_SHA256
 wrangler secret put SESSION_TTL_SECONDS
 wrangler secret put ONE_TIME_DOWNLOAD_TTL_SECONDS
+wrangler secret put ONE_TIME_DOWNLOAD_RETRY_WINDOW_SECONDS
 ```
 
 ## Cloudflare Workers 部署
@@ -110,6 +112,7 @@ printf "admin" | npx wrangler secret put ADMIN_USERNAME
 printf "<sha256-hex>" | npx wrangler secret put ADMIN_PASSWORD_SHA256
 printf "86400" | npx wrangler secret put SESSION_TTL_SECONDS
 printf "600" | npx wrangler secret put ONE_TIME_DOWNLOAD_TTL_SECONDS
+printf "60" | npx wrangler secret put ONE_TIME_DOWNLOAD_RETRY_WINDOW_SECONDS
 ```
 
 如果使用 GitHub Actions 自动部署，需要在仓库 secrets 里配置：
@@ -117,7 +120,7 @@ printf "600" | npx wrangler secret put ONE_TIME_DOWNLOAD_TTL_SECONDS
 - `CLOUDFLARE_API_TOKEN`
 - `CF_ACCOUNT_ID`
 
-Worker 的 `AUTH_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD_SHA256`、`SESSION_TTL_SECONDS`、`ONE_TIME_DOWNLOAD_TTL_SECONDS` 仍建议用 `wrangler secret put` 写入 Cloudflare，不提交到仓库。
+Worker 的 `AUTH_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD_SHA256`、`SESSION_TTL_SECONDS`、`ONE_TIME_DOWNLOAD_TTL_SECONDS`、`ONE_TIME_DOWNLOAD_RETRY_WINDOW_SECONDS` 仍建议用 `wrangler secret put` 写入 Cloudflare，不提交到仓库。
 
 ## 本地开发
 
@@ -135,7 +138,8 @@ npx wrangler dev --port 8787 \
   --var ADMIN_USERNAME:admin \
   --var ADMIN_PASSWORD_SHA256:<sha256-hex> \
   --var SESSION_TTL_SECONDS:86400 \
-  --var ONE_TIME_DOWNLOAD_TTL_SECONDS:600
+  --var ONE_TIME_DOWNLOAD_TTL_SECONDS:600 \
+  --var ONE_TIME_DOWNLOAD_RETRY_WINDOW_SECONDS:60
 ```
 
 打开 `http://127.0.0.1:8787`。
@@ -152,7 +156,7 @@ npx wrangler dev --port 8787 \
 - `DELETE /api/templates/:id`: 删除模板
 - `POST /api/render`: 一次性渲染 Mihomo YAML
 - `POST /api/render-link`: 生成一次性 YAML 下载链接
-- `GET /download/:token.yaml`: 公开下载一次，首次访问后失效
+- `GET /download/:token.yaml`: 公开下载；必须在有效期内首次访问，首次访问后短时间允许客户端重试，随后失效
 
 旧的 `/sub`、`/shorten-v2`、`/singbox`、`/surge`、`/xray`、`/subconverter` 等公开转换/短链路由已移除。
 

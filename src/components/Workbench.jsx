@@ -185,7 +185,8 @@ export const Workbench = () => {
                         this.downloadExpiresAt = payload.expiresAt || '';
                         this.downloadFilename = payload.filename || 'mihomo.yaml';
                         const minutes = Math.max(1, Math.round((payload.expiresInSeconds || 600) / 60));
-                        this.status = '一次性下载链接已生成，' + minutes + ' 分钟内访问一次后失效。';
+                        const retrySeconds = payload.retryWindowSeconds || 60;
+                        this.status = '一次性下载链接已生成，' + minutes + ' 分钟内首次访问；访问后 ' + retrySeconds + ' 秒内允许客户端重试。';
                     } catch (error) {
                         this.error = error.message || '生成失败';
                     } finally {
@@ -341,7 +342,7 @@ export const Workbench = () => {
                                 <div class="space-y-2">
                                     <input {...{ 'x-model': 'downloadUrl' }} readonly spellcheck="false" class="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm font-mono" placeholder="生成后显示一次性下载链接。" />
                                     <div {...{ 'x-show': 'downloadUrl' }} class="text-xs text-gray-500 dark:text-gray-400">
-                                        <span>首次访问后失效</span>
+                                        <span>首次访问后短时间内允许客户端重试</span>
                                         <span {...{ 'x-show': 'downloadExpiresAt' }}>，过期时间 </span>
                                         <span {...{ 'x-show': 'downloadExpiresAt', 'x-text': 'new Date(downloadExpiresAt).toLocaleString()' }}></span>
                                     </div>
