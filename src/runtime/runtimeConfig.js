@@ -13,6 +13,10 @@
  * @typedef {Object} RuntimeConfig
  * @property {number} [configTtlSeconds]
  * @property {number} [shortLinkTtlSeconds]
+ * @property {string} [authSecret]
+ * @property {string} [adminUsername]
+ * @property {string} [adminPasswordSha256]
+ * @property {number} [sessionTtlSeconds]
  */
 
 /**
@@ -40,7 +44,12 @@ export function normalizeRuntime(runtime = {}) {
         logger: runtime.logger ?? console,
         config: {
             configTtlSeconds: runtime.config?.configTtlSeconds ?? DEFAULTS.configTtlSeconds,
-            shortLinkTtlSeconds: runtime.config?.shortLinkTtlSeconds ?? null
+            shortLinkTtlSeconds: runtime.config?.shortLinkTtlSeconds ?? null,
+            authSecret: runtime.config?.authSecret,
+            adminUsername: runtime.config?.adminUsername,
+            adminPasswordSha256: runtime.config?.adminPasswordSha256,
+            sessionTtlSeconds: runtime.config?.sessionTtlSeconds,
+            forceSecureCookie: runtime.config?.forceSecureCookie
         }
     };
 }

@@ -1,8 +1,7 @@
-name: Deploy Worker
+name: Deploy Chat Sublink Worker
 
 on:
   workflow_dispatch:
-  repository_dispatch:
   push:
     branches:
       - main
@@ -16,10 +15,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '21'
+          node-version: '20'
       
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
       
       - name: Install wrangler
         run: npm install -g wrangler
@@ -44,11 +46,11 @@ jobs:
             exit 1
           fi
           
-          KV_ID=$(echo "$LIST_OUTPUT" | jq -r '.[] | select(.title == "sublink-worker-'$KV_NAMESPACE'") | .id')
+          KV_ID=$(echo "$LIST_OUTPUT" | jq -r '.[] | select(.title == "chat-sublink-worker-'$KV_NAMESPACE'" or .title == "'$KV_NAMESPACE'") | .id' | head -n 1)
           
           if [ -z "$KV_ID" ]; then
               echo "KV namespace $KV_NAMESPACE does not exist. Creating..."
-              CREATE_OUTPUT=$(wrangler kv namespace create "sublink-worker-$KV_NAMESPACE" 2>&1)
+              CREATE_OUTPUT=$(wrangler kv namespace create "$KV_NAMESPACE" 2>&1)
               echo "Create KV namespace output: $CREATE_OUTPUT"
               KV_ID=$(echo "$CREATE_OUTPUT" | grep -o '[0-9a-f]\{32\}')
               

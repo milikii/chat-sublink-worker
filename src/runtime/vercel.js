@@ -11,7 +11,12 @@ export function createVercelRuntime(env = process.env) {
         logger: console,
         config: {
             configTtlSeconds: undefined,
-            shortLinkTtlSeconds: null
+            shortLinkTtlSeconds: null,
+            authSecret: env.AUTH_SECRET,
+            adminUsername: env.ADMIN_USERNAME,
+            adminPasswordSha256: env.ADMIN_PASSWORD_SHA256,
+            sessionTtlSeconds: parseNumber(env.SESSION_TTL_SECONDS) || undefined,
+            forceSecureCookie: true
         }
     };
 }
@@ -80,4 +85,10 @@ function buildCommonRedisOptions(env) {
         options.tls = {};
     }
     return options;
+}
+
+function parseNumber(value) {
+    if (!value) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
 }

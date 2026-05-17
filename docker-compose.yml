@@ -1,14 +1,16 @@
 services:
   worker:
-    image: ${SUBLINK_WORKER_IMAGE:-ghcr.io/7sageer/sublink-worker:latest}
+    image: ${SUBLINK_WORKER_IMAGE:-ghcr.io/milikii/chat-sublink-worker:latest}
     pull_policy: always
     ports:
       - "8787:8787"
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_KEY_PREFIX: sublink
-      CONFIG_TTL_SECONDS: 2592000
+      REDIS_KEY_PREFIX: chat-sublink
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD_SHA256: ${ADMIN_PASSWORD_SHA256:?set ADMIN_PASSWORD_SHA256}
     depends_on:
       - redis
   redis:

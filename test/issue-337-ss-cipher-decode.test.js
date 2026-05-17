@@ -5,7 +5,6 @@ import { ClashConfigBuilder } from '../src/builders/ClashConfigBuilder.js';
  * Test for GitHub Issue #337
  * SS URL with Base64-encoded cipher containing URL-special characters should not be corrupted
  * by improper decodeURIComponent at the subscription content level.
- * https://github.com/7Sageer/sublink-worker/issues/337
  */
 describe('Issue #337: SS URL Base64 cipher decode', () => {
   it('should correctly parse SS URL with Base64-encoded cipher containing + and / characters', async () => {

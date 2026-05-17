@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const KV_NAMESPACE = 'SUBLINK_KV';
-const WORKER_NAME = 'sublink-worker'
+const WORKER_NAME = 'chat-sublink-worker'
 const KV_NAMESPACE_NAME = `${WORKER_NAME}-${KV_NAMESPACE}`;
 const LEGACY_KV_NAMESPACE_NAME = `${WORKER_NAME}-${WORKER_NAME}-${KV_NAMESPACE}`;  // 历史遗留的命名空间名称
 const FALLBACK_KV_NAMESPACE_NAME = KV_NAMESPACE; // 早期账号里只叫 SUBLINK_KV

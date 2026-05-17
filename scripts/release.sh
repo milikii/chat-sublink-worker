@@ -66,8 +66,7 @@ git commit -m "chore: release $VERSION"
 # Create annotated tag
 echo -e "${YELLOW}→ Creating Git tag $VERSION${NC}"
 git tag $VERSION -a -m "Release $VERSION
-
-See changelog: https://sublink.works/updates/"
+"
 
 # Push commit and tag
 echo -e "${YELLOW}→ Pushing to remote${NC}"
@@ -77,12 +76,11 @@ git push origin $VERSION
 # Create GitHub Release with auto-generated notes
 echo -e "${YELLOW}→ Creating GitHub Release${NC}"
 RELEASE_URL=$(gh release create $VERSION \
-  --title "Sublink Worker $VERSION" \
+  --title "Chat Sublink Worker $VERSION" \
   --generate-notes)
 
 echo -e "\n${GREEN}✅ Release $VERSION completed successfully!${NC}"
 echo -e "${GREEN}→ Release URL: $RELEASE_URL${NC}\n"
 echo -e "${YELLOW}Next steps:${NC}"
-echo "1. Update changelog at docs/updates/index.md"
-echo "2. Review and edit the release notes if needed: $RELEASE_URL"
-echo "3. Deploy to production if auto-deploy is not configured"
+echo "1. Review and edit the release notes if needed: $RELEASE_URL"
+echo "2. Deploy to production if auto-deploy is not configured"

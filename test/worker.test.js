@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import yaml from 'js-yaml';
 import { createApp } from '../src/app/createApp.jsx';
 import { MemoryKVAdapter } from '../src/adapters/kv/memoryKv.js';
+
+const PASSWORD_HASH = '2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b';
 
 const createTestApp = (overrides = {}) => {
     const runtime = {
@@ -8,110 +11,137 @@ const createTestApp = (overrides = {}) => {
         assetFetcher: overrides.assetFetcher ?? null,
         logger: console,
         config: {
-            configTtlSeconds: 60,
-            shortLinkTtlSeconds: null,
+            authSecret: 'test-secret',
+            adminUsername: 'admin',
+            adminPasswordSha256: PASSWORD_HASH,
+            forceSecureCookie: false,
             ...(overrides.config || {})
         }
     };
     return createApp(runtime);
 };
 
-describe('Worker', () => {
-    it('GET / returns HTML', async () => {
+async function login(app) {
+    const res = await app.request('http://localhost/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'admin', password: 'secret' })
+    });
+    expect(res.status).toBe(200);
+    return res.headers.get('set-cookie').split(';')[0];
+}
+
+describe('Private Mihomo worker', () => {
+    it('redirects root to login without a session', async () => {
         const app = createTestApp();
         const res = await app.request('http://localhost/');
+        expect(res.status).toBe(302);
+        expect(res.headers.get('location')).toBe('/login');
+    });
+
+    it('renders the private workbench after login', async () => {
+        const app = createTestApp();
+        const cookie = await login(app);
+        const res = await app.request('http://localhost/', {
+            headers: { Cookie: cookie }
+        });
         expect(res.status).toBe(200);
         expect(res.headers.get('content-type')).toContain('text/html');
         const text = await res.text();
-        expect(text).toContain('Sublink Worker');
+        expect(text).toContain('一次性生成');
+        expect(text).not.toContain('SingBox');
+        expect(text).not.toContain('Surge');
     });
 
-    it('GET /singbox returns JSON', async () => {
+    it('lists built-in Mihomo templates', async () => {
         const app = createTestApp();
-        const config = 'vmess://ew0KICAidiI6ICIyIiwNCiAgInBzIjogInRlc3QiLA0KICAiYWRkIjogIjEuMS4xLjEiLA0KICAicG9ydCI6ICI0NDMiLA0KICAiaWQiOiAiYWRkNjY2NjYtODg4OC04ODg4LTg4ODgtODg4ODg4ODg4ODg4IiwNCiAgImFpZCI6ICIwIiwNCiAgInNjeSI6ICJhdXRvIiwNCiAgIm5ldCI6ICJ3cyIsDQogICJ0eXBlIjogIm5vbmUiLA0KICAiaG9zdCI6ICIiLA0KICAicGF0aCI6ICIvIiwNCiAgInRscyI6ICJ0bHMiDQp9';
-        const res = await app.request(`http://localhost/singbox?config=${encodeURIComponent(config)}`);
-        expect(res.status).toBe(200);
-        expect(res.headers.get('content-type')).toContain('application/json');
-        const json = await res.json();
-        expect(json).toHaveProperty('outbounds');
-    });
+        const cookie = await login(app);
 
-    it('GET /singbox returns legacy config for sing-box 1.11 UA', async () => {
-        const app = createTestApp();
-        const config = 'vmess://ew0KICAidiI6ICIyIiwNCiAgInBzIjogInRlc3QiLA0KICAiYWRkIjogIjEuMS4xLjEiLA0KICAicG9ydCI6ICI0NDMiLA0KICAiaWQiOiAiYWRkNjY2NjYtODg4OC04ODg4LTg4ODgtODg4ODg4ODg4ODg4IiwNCiAgImFpZCI6ICIwIiwNCiAgInNjeSI6ICJhdXRvIiwNCiAgIm5ldCI6ICJ3cyIsDQogICJ0eXBlIjogIm5vbmUiLA0KICAiaG9zdCI6ICIiLA0KICAicGF0aCI6ICIvIiwNCiAgInRscyI6ICJ0bHMiDQp9';
-        const res = await app.request(`http://localhost/singbox?config=${encodeURIComponent(config)}`, {
-            headers: {
-                'User-Agent': 'SFI/1.12.2 (Build 2; sing-box 1.11.4; language zh_CN)'
-            }
+        const res = await app.request('http://localhost/api/templates', {
+            headers: { Cookie: cookie }
         });
+
         expect(res.status).toBe(200);
-        const json = await res.json();
-        expect(json?.dns?.servers?.[0]).toHaveProperty('address');
-        expect(json?.dns?.servers?.[0]).not.toHaveProperty('type');
-        expect(json?.route).not.toHaveProperty('default_domain_resolver');
+        const templates = await res.json();
+        expect(templates.map(template => template.id)).toEqual(expect.arrayContaining([
+            'default',
+            'minimal',
+            'alpha-xhttp',
+            'lan-dashboard'
+        ]));
     });
 
-    it('GET /singbox returns 1.12+ config for sing-box 1.12 UA', async () => {
-        const app = createTestApp();
-        const config = 'vmess://ew0KICAidiI6ICIyIiwNCiAgInBzIjogInRlc3QiLA0KICAiYWRkIjogIjEuMS4xLjEiLA0KICAicG9ydCI6ICI0NDMiLA0KICAiaWQiOiAiYWRkNjY2NjYtODg4OC04ODg4LTg4ODgtODg4ODg4ODg4ODg4IiwNCiAgImFpZCI6ICIwIiwNCiAgInNjeSI6ICJhdXRvIiwNCiAgIm5ldCI6ICJ3cyIsDQogICJ0eXBlIjogIm5vbmUiLA0KICAiaG9zdCI6ICIiLA0KICAicGF0aCI6ICIvIiwNCiAgInRscyI6ICJ0bHMiDQp9';
-        const res = await app.request(`http://localhost/singbox?config=${encodeURIComponent(config)}`, {
-            headers: {
-                'User-Agent': 'SFA/1.12.12 (587; sing-box 1.12.12; language zh_Hans_CN)'
-            }
-        });
-        expect(res.status).toBe(200);
-        const json = await res.json();
-        expect(json?.dns?.servers?.[0]).toHaveProperty('type');
-        expect(json?.dns?.servers?.[0]).not.toHaveProperty('address');
-        expect(json?.route).toHaveProperty('default_domain_resolver', 'dns_resolver');
-    });
-
-    it('GET /clash returns YAML', async () => {
-        const app = createTestApp();
-        const config = 'vmess://ew0KICAidiI6ICIyIiwNCiAgInBzIjogInRlc3QiLA0KICAiYWRkIjogIjEuMS4xLjEiLA0KICAicG9ydCI6ICI0NDMiLA0KICAiaWQiOiAiYWRkNjY2NjYtODg4OC04ODg4LTg4ODgtODg4ODg4ODg4ODg4IiwNCiAgImFpZCI6ICIwIiwNCiAgInNjeSI6ICJhdXRvIiwNCiAgIm5ldCI6ICJ3cyIsDQogICJ0eXBlIjogIm5vbmUiLA0KICAiaG9zdCI6ICIiLA0KICAicGF0aCI6ICIvIiwNCiAgInRscyI6ICJ0bHMiDQp9';
-        const res = await app.request(`http://localhost/clash?config=${encodeURIComponent(config)}`);
-        expect(res.status).toBe(200);
-        // Clash builder returns text/yaml
-        expect(res.headers.get('content-type')).toContain('text/yaml');
-        const text = await res.text();
-        expect(text).toContain('proxies:');
-    });
-
-    it('GET /clash rejects empty url-test proxy groups with a diagnostic error', async () => {
-        const app = createTestApp();
-        const config = `
-proxies:
-  - name: Node-A
-    type: ss
-    server: a.example.com
-    port: 443
-    cipher: aes-128-gcm
-    password: test
-proxy-groups:
-  - name: Empty Test Group
-    type: url-test
-    proxies: []
-`;
-        const res = await app.request(`http://localhost/clash?config=${encodeURIComponent(config)}`);
-
-        expect(res.status).toBe(400);
-        const text = await res.text();
-        expect(text).toContain('Invalid proxy group "Empty Test Group"');
-        expect(text).toContain('requires at least one proxy or provider reference');
-    });
-
-    it('GET /shorten-v2 returns short code', async () => {
-        const url = 'http://example.com';
+    it('renders Mihomo YAML via authenticated POST without storing nodes', async () => {
         const kvMock = {
-            put: vi.fn(async () => {}),
             get: vi.fn(async () => null),
+            put: vi.fn(async () => {}),
             delete: vi.fn(async () => {})
         };
         const app = createTestApp({ kv: kvMock });
-        const res = await app.request(`http://localhost/shorten-v2?url=${encodeURIComponent(url)}`);
+        const cookie = await login(app);
+        const node = 'vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=example.com&type=xhttp&path=%2Fup&mode=packet-up&packet-encoding=xudp&encryption=mlkem768x25519plus&ech=true&ech-config=abc#Alpha';
+        const template = 'mixed-port: 7890\nproxies: "{{PROXIES}}"\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies: "{{PROXY_NAMES}}"\nrules:\n  - MATCH,PROXY\n';
+
+        const res = await app.request('http://localhost/api/render', {
+            method: 'POST',
+            headers: {
+                Cookie: cookie,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                templateContent: template,
+                nodes: node
+            })
+        });
+
         expect(res.status).toBe(200);
+        expect(res.headers.get('cache-control')).toBe('no-store');
         const text = await res.text();
-        expect(text).toBeTruthy();
-        expect(kvMock.put).toHaveBeenCalled();
+        const config = yaml.load(text);
+        expect(config.proxies[0].name).toBe('Alpha');
+        expect(config.proxies[0].network).toBe('xhttp');
+        expect(config.proxies[0]['packet-encoding']).toBe('xudp');
+        expect(config.proxies[0].encryption).toBe('mlkem768x25519plus');
+        expect(config.proxies[0]['ech-opts']).toMatchObject({ enable: true, config: 'abc' });
+
+        expect(kvMock.put).not.toHaveBeenCalledWith(
+            expect.any(String),
+            expect.stringContaining('00000000-0000-4000-8000-000000000001'),
+            expect.anything()
+        );
+        expect(kvMock.put).not.toHaveBeenCalledWith(
+            expect.any(String),
+            expect.stringContaining('example.com'),
+            expect.anything()
+        );
+    });
+
+    it('rejects proxy providers so templates cannot retain subscription sources', async () => {
+        const app = createTestApp();
+        const cookie = await login(app);
+        const template = 'mixed-port: 7890\nproxies: "{{PROXIES}}"\nproxy-providers:\n  remote:\n    type: http\n    url: https://example.com/sub\n    path: ./remote.yaml\nproxy-groups:\n  - name: PROXY\n    type: select\n    use:\n      - remote\nrules:\n  - MATCH,PROXY\n';
+
+        const res = await app.request('http://localhost/api/render', {
+            method: 'POST',
+            headers: {
+                Cookie: cookie,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                templateContent: template,
+                nodes: 'ss://YWVzLTEyOC1nY206cGFzc0BleGFtcGxlLmNvbTo0NDM#Alpha'
+            })
+        });
+
+        expect(res.status).toBe(400);
+        await expect(res.text()).resolves.toContain('proxy-providers are not supported');
+    });
+
+    it('rejects removed product routes', async () => {
+        const app = createTestApp();
+        for (const path of ['/singbox', '/surge', '/xray', '/subconverter', '/shorten-v2', '/s/code', '/b/code', '/c/code', '/x/code', '/resolve', '/config', '/sub/default']) {
+            const res = await app.request(`http://localhost${path}`);
+            expect(res.status).toBe(404);
+        }
     });
 });

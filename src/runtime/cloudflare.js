@@ -5,6 +5,17 @@ export function createCloudflareRuntime(env) {
         kv: env?.SUBLINK_KV ? new CloudflareKVAdapter(env.SUBLINK_KV) : null,
         assetFetcher: env?.ASSETS ? (request) => env.ASSETS.fetch(request) : null,
         logger: console,
-        config: {}
+        config: {
+            authSecret: env?.AUTH_SECRET,
+            adminUsername: env?.ADMIN_USERNAME,
+            adminPasswordSha256: env?.ADMIN_PASSWORD_SHA256,
+            sessionTtlSeconds: parseNumber(env?.SESSION_TTL_SECONDS)
+        }
     };
+}
+
+function parseNumber(value) {
+    if (!value) return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
 }

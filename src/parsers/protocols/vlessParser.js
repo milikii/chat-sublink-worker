@@ -1,18 +1,32 @@
 import { parseServerInfo, parseUrlParams, createTlsConfig, createTransportConfig, parseBool } from '../../utils.js';
+import { buildVlessAlphaFields } from './vlessMihomoFields.js';
 
 export function parseVless(url) {
     const { addressPart, params, name } = parseUrlParams(url);
     const [uuid, serverInfo] = addressPart.split('@');
     const { host, port } = parseServerInfo(serverInfo);
 
+    const alphaFields = buildVlessAlphaFields(params);
     const tls = createTlsConfig(params);
     if (tls.reality) {
         tls.utls = {
             enabled: true,
             fingerprint: 'chrome'
         };
+        if (alphaFields.reality) {
+            tls.reality = {
+                ...tls.reality,
+                ...alphaFields.reality
+            };
+        }
+    }
+    if (alphaFields.ech) {
+        tls.ech = alphaFields.ech;
     }
     const transport = params.type !== 'tcp' ? createTransportConfig(params) : undefined;
+    if (transport?.type === 'xhttp' && alphaFields.xhttp) {
+        transport.options = alphaFields.xhttp;
+    }
 
     // Parse UDP setting - primarily used for Clash output
     // In sing-box, UDP is controlled by 'network' field, but we preserve this for Clash compatibility
@@ -29,6 +43,8 @@ export function parseVless(url) {
         transport,
         network: 'tcp',
         flow: params.flow ?? undefined,
+        encryption: alphaFields.encryption ?? undefined,
+        packet_encoding: alphaFields.packet_encoding ?? undefined,
         // Include udp if explicitly specified - will be used for Clash output
         // SingBoxConfigBuilder will strip this field for sing-box output
         ...(udp !== undefined ? { udp } : {})

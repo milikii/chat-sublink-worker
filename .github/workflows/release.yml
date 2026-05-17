@@ -24,14 +24,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          name: Sublink Worker ${{ steps.version.outputs.VERSION }}
+          name: Chat Sublink Worker ${{ steps.version.outputs.VERSION }}
           body: |
             ## Release ${{ steps.version.outputs.VERSION }}
-
-            ### 📚 Documentation
-            - [Complete Changelog](https://sublink.works/updates/)
-            - [Deployment Guide](https://sublink.works/guide/quick-start/)
-            - [API Documentation](https://sublink.works/api/)
 
             ### 🚀 Quick Start
             ```bash
@@ -47,7 +42,6 @@ jobs:
 
             ---
             **Note:** This release was automatically created by GitHub Actions.
-            For detailed changes, see the [changelog](https://sublink.works/updates/).
           generate_release_notes: true # Auto-generate notes from commits
           draft: false
           prerelease: false

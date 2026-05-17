@@ -3,7 +3,6 @@ import { SurgeConfigBuilder } from '../src/builders/SurgeConfigBuilder.js';
 
 /**
  * Test for GitHub Issue #299
- * https://github.com/7Sageer/sublink-worker/issues/299
  *
  * Problem: When subscription contains unsupported proxy types (like VLESS),
  * the comment string "# USA-VLESS - Unsupported proxy type: vless" is incorrectly

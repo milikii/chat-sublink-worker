@@ -5,7 +5,6 @@ import { ClashConfigBuilder } from '../src/builders/ClashConfigBuilder.js';
 /**
  * Test for GitHub Issue #290
  * SS proxies with plugin and plugin-opts should preserve these fields after conversion
- * https://github.com/7Sageer/sublink-worker/issues/290
  */
 describe('SS Plugin Issue #290', () => {
   it('should preserve plugin and plugin-opts for SS proxies', async () => {
