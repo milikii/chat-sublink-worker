@@ -94,13 +94,16 @@ export function renderTemplate({ templateContent, proxies, templateName = 'templ
         throw new InvalidPayloadError('Template must be a YAML object');
     }
 
-    const allProxies = mergeProxyLists(readPrependProxies(parsed), proxies);
+    const inlineProxyEntries = analyzeInlineProxyEntries(parsed.proxies);
+    const allProxies = mergeProxyLists(readPrependProxies(parsed), inlineProxyEntries.staticProxies, proxies);
     const proxyNames = allProxies.map(proxy => proxy.name);
+    const subscribedProxyNames = proxies.map(proxy => proxy.name);
     const proxyNameGroups = buildProxyNameGroups(proxyNames);
     let sawProxiesPlaceholder = false;
     const proxyGroups = buildProxyGroupsPlaceholder(parsed, {
         proxies: allProxies,
         proxyNames,
+        subscribedProxyNames,
         proxyNameGroups,
         templateName,
         generatedAt: now.toISOString(),
@@ -111,6 +114,7 @@ export function renderTemplate({ templateContent, proxies, templateName = 'templ
     const rendered = replacePlaceholders(parsed, {
         proxies: allProxies,
         proxyNames,
+        subscribedProxyNames,
         proxyNameGroups,
         proxyGroups,
         templateName,
@@ -122,7 +126,17 @@ export function renderTemplate({ templateContent, proxies, templateName = 'templ
 
     delete rendered['prepend-proxies'];
     delete rendered['prepend-proxy-groups'];
-    rendered.proxies = normalizeRenderedProxies(rendered, allProxies, sawProxiesPlaceholder);
+    rendered.proxies = normalizeRenderedProxies(rendered, allProxies, sawProxiesPlaceholder, inlineProxyEntries);
+    rendered['proxy-groups'] = normalizeRenderedProxyGroups(rendered['proxy-groups'], inlineProxyEntries.proxyGroups, {
+        proxies: allProxies,
+        proxyNames,
+        subscribedProxyNames,
+        proxyNameGroups,
+        proxyGroups,
+        templateName,
+        generatedAt: now.toISOString(),
+        markProxiesPlaceholder: () => {}
+    });
 
     return rendered;
 }
@@ -219,6 +233,9 @@ function replacePlaceholders(value, context) {
             case '{{PROXY_NAMES}}':
             case '{{PROXY_NAMES_INLINE}}':
                 return [...context.proxyNames];
+            case '{{SUBSCRIBED_PROXIES}}':
+            case '{{SUBSCRIBED_PROXY_NAMES}}':
+                return [...context.subscribedProxyNames];
             case '{{PUBLIC_PROXY_NAMES}}':
                 return [...context.proxyNameGroups.public];
             case '{{US_PROXY_NAMES}}':
@@ -263,7 +280,7 @@ function quoteBarePlaceholders(content) {
         .replace(/^(\s*-\s*)({{[A-Z_]+}})(\s*(?:#.*)?$)/gm, '$1"$2"$3');
 }
 
-function normalizeRenderedProxies(config, generatedProxies, sawProxiesPlaceholder) {
+function normalizeRenderedProxies(config, generatedProxies, sawProxiesPlaceholder, inlineProxyEntries = { sawInlineProxyArray: false }) {
     const current = config.proxies;
     if (Array.isArray(current) && current.length === 1 && Array.isArray(current[0])) {
         return current[0];
@@ -285,7 +302,64 @@ function normalizeRenderedProxies(config, generatedProxies, sawProxiesPlaceholde
         return deepCopy(generatedProxies);
     }
 
+    if (inlineProxyEntries.sawInlineProxyArray) {
+        return deepCopy(generatedProxies);
+    }
+
     throw new InvalidPayloadError('Template proxies must be "{{PROXIES}}", an empty array, or omitted');
+}
+
+function normalizeRenderedProxyGroups(groups, inlineGroups, context) {
+    const renderedGroups = Array.isArray(groups) ? groups.map(group => hydrateProxyGroup(group, context.proxyNameGroups)) : [];
+    if (!inlineGroups.length) {
+        return renderedGroups;
+    }
+
+    const existingNames = new Set(renderedGroups.map(group => group?.name).filter(Boolean));
+    for (const group of inlineGroups) {
+        const renderedGroup = hydrateProxyGroup(replacePlaceholders(group, context), context.proxyNameGroups);
+        if (renderedGroup?.name && !existingNames.has(renderedGroup.name)) {
+            renderedGroups.push(renderedGroup);
+            existingNames.add(renderedGroup.name);
+        }
+    }
+    return renderedGroups;
+}
+
+function analyzeInlineProxyEntries(value) {
+    if (!Array.isArray(value)) {
+        return {
+            sawInlineProxyArray: false,
+            staticProxies: [],
+            proxyGroups: []
+        };
+    }
+
+    const staticProxies = [];
+    const proxyGroups = [];
+    for (const entry of value) {
+        if (typeof entry === 'string' && isPlaceholderToken(entry)) {
+            continue;
+        }
+        if (!isMihomoProxyObject(entry)) {
+            continue;
+        }
+        if (isProxyGroupObject(entry)) {
+            proxyGroups.push(deepCopy(entry));
+        } else {
+            staticProxies.push(normalizeDirectMihomoProxy(entry));
+        }
+    }
+
+    return {
+        sawInlineProxyArray: true,
+        staticProxies,
+        proxyGroups
+    };
+}
+
+function isProxyGroupObject(value) {
+    return value && typeof value === 'object' && GROUP_TYPES_REQUIRING_MEMBERS.has(value.type);
 }
 
 function readPrependProxies(config) {
@@ -296,11 +370,19 @@ function readPrependProxies(config) {
     return prependProxies.map(normalizeDirectMihomoProxy);
 }
 
-function mergeProxyLists(prependProxies, generatedProxies) {
-    return [
-        ...prependProxies.map(deepCopy),
-        ...generatedProxies.map(deepCopy)
-    ];
+function mergeProxyLists(...proxyLists) {
+    const seen = new Set();
+    const merged = [];
+    for (const proxyList of proxyLists) {
+        for (const proxy of proxyList) {
+            if (!proxy?.name || seen.has(proxy.name)) {
+                continue;
+            }
+            seen.add(proxy.name);
+            merged.push(deepCopy(proxy));
+        }
+    }
+    return merged;
 }
 
 function buildProxyGroupsPlaceholder(config, context) {

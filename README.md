@@ -34,6 +34,8 @@ proxy-groups:
 
 - `proxies: []` 或省略 `proxies` 时，会自动注入本次节点。
 - `{{PROXIES}}`、`{{PROXY_NAMES}}` 等占位符可以不加引号。
+- `proxies` 里已有真实静态节点时，会保留这些节点并合并本次临时节点。
+- 如果误把 `type: select` 写在 `proxies` 里，生成器会把它转成 `proxy-groups`；其中 `{{SUBSCRIBED_PROXIES}}` 会替换成本次临时节点名。
 - `prepend-proxies` 可用于模板内预置本机私有节点，生成后会合并到 `proxies` 并移除 helper 字段。
 - `prepend-proxy-groups` 配合 `proxy-groups: "{{PROXY_GROUPS}}"` 可预置分组，生成时会自动把美国、日本、NAS/回家、自动测速分组补入对应节点。
 

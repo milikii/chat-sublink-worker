@@ -315,6 +315,73 @@ rules:
         expect(groups['🏠 回家'].proxies).toEqual(['🏠 回家-Reality', 'DIRECT']);
     });
 
+    it('keeps inline static proxies and moves inline select proxies to proxy groups', async () => {
+        const app = createTestApp();
+        const cookie = await login(app);
+        const template = `mixed-port: 7890
+allow-lan: false
+mode: rule
+proxies:
+  - name: "🏠 回家-Reality"
+    type: vless
+    server: home.example.com
+    port: 10444
+    uuid: 8f91b6a0-e8ee-11ea-adc1-0242ac120002
+    flow: xtls-rprx-vision
+    network: tcp
+    udp: true
+    tls: true
+    servername: www.speedtest.net
+    reality-opts:
+      public-key: "Ft5xRjE2sT3uV5wX8yZ1aC4bD7eF0gH"
+      short-id: "a1b2c3d4e5f6g7h8"
+    client-fingerprint: chrome
+  - name: "🚀 其他订阅节点"
+    type: select
+    proxies: "{{SUBSCRIBED_PROXIES}}"
+proxy-groups:
+  - name: "节点选择"
+    type: select
+    proxies:
+      - "🏠 回家-Reality"
+      - "🚀 其他订阅节点"
+      - DIRECT
+  - name: "🚀 自动选择"
+    type: url-test
+    proxies:
+      - "🏠 回家-Reality"
+      - "🚀 其他订阅节点"
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+rules:
+  - MATCH,节点选择
+`;
+        const nodes = [
+            'ss://YWVzLTEyOC1nY206cGFzc0B1cy5leGFtcGxlLmNvbTo0NDM#US-LA',
+            'ss://YWVzLTEyOC1nY206cGFzc0BqcC5leGFtcGxlLmNvbTo0NDM#JP-Tokyo'
+        ].join('\n');
+
+        const res = await app.request('http://localhost/api/render', {
+            method: 'POST',
+            headers: {
+                Cookie: cookie,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                templateContent: template,
+                nodes
+            })
+        });
+
+        expect(res.status).toBe(200);
+        const config = yaml.load(await res.text());
+        expect(config.proxies.map(proxy => proxy.name)).toEqual(['🏠 回家-Reality', 'US-LA', 'JP-Tokyo']);
+        const groups = Object.fromEntries(config['proxy-groups'].map(group => [group.name, group]));
+        expect(groups['节点选择'].proxies).toEqual(['🏠 回家-Reality', '🚀 其他订阅节点', 'DIRECT']);
+        expect(groups['🚀 自动选择'].proxies).toEqual(['🏠 回家-Reality', '🚀 其他订阅节点', 'US-LA', 'JP-Tokyo']);
+        expect(groups['🚀 其他订阅节点'].proxies).toEqual(['US-LA', 'JP-Tokyo']);
+    });
+
     it('creates a public one-time download link that burns after first use', async () => {
         const app = createTestApp({
             config: {
