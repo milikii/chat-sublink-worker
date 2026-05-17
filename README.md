@@ -30,6 +30,13 @@ proxy-groups:
 
 `{{PROXIES}}` 会替换成完整节点对象数组，`{{PROXY_NAMES}}` 会替换成节点名数组。
 
+兼容写法：
+
+- `proxies: []` 或省略 `proxies` 时，会自动注入本次节点。
+- `{{PROXIES}}`、`{{PROXY_NAMES}}` 等占位符可以不加引号。
+- `prepend-proxies` 可用于模板内预置本机私有节点，生成后会合并到 `proxies` 并移除 helper 字段。
+- `prepend-proxy-groups` 配合 `proxy-groups: "{{PROXY_GROUPS}}"` 可预置分组，生成时会自动把美国、日本、NAS/回家、自动测速分组补入对应节点。
+
 内置模板：
 
 - `android-phone`: 安卓手机模板，启用 TUN，局域网地址走 `NAS` 分组，`NAS` 分组会自动匹配节点名包含 `NAS` / `HOME` / `家庭` / `局域网` 的节点，并保留 `DIRECT` 兜底。

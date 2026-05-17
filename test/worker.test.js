@@ -194,6 +194,127 @@ describe('Private Mihomo worker', () => {
         );
     });
 
+    it('injects proxies when a copied template leaves proxies empty or omits the key', async () => {
+        const app = createTestApp();
+        const cookie = await login(app);
+        const node = 'ss://YWVzLTEyOC1nY206cGFzc0BleGFtcGxlLmNvbTo0NDM#Alpha';
+        const templates = [
+            'mixed-port: 7890\nproxies: []\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies: {{PROXY_NAMES}}\nrules:\n  - MATCH,PROXY\n',
+            'mixed-port: 7890\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies: "{{PROXY_NAMES}}"\nrules:\n  - MATCH,PROXY\n'
+        ];
+
+        for (const templateContent of templates) {
+            const res = await app.request('http://localhost/api/render', {
+                method: 'POST',
+                headers: {
+                    Cookie: cookie,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    templateContent,
+                    nodes: node
+                })
+            });
+
+            expect(res.status).toBe(200);
+            const config = yaml.load(await res.text());
+            expect(config.proxies[0].name).toBe('Alpha');
+            expect(config['proxy-groups'][0].proxies).toEqual(['Alpha']);
+        }
+    });
+
+    it('accepts bare PROXIES placeholders without quotes', async () => {
+        const app = createTestApp();
+        const cookie = await login(app);
+        const template = 'mixed-port: 7890\nproxies: {{PROXIES}}\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n      - {{PROXY_NAMES}}\nrules:\n  - MATCH,PROXY\n';
+
+        const res = await app.request('http://localhost/api/render', {
+            method: 'POST',
+            headers: {
+                Cookie: cookie,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                templateContent: template,
+                nodes: 'ss://YWVzLTEyOC1nY206cGFzc0BleGFtcGxlLmNvbTo0NDM#Alpha'
+            })
+        });
+
+        expect(res.status).toBe(200);
+        const config = yaml.load(await res.text());
+        expect(config.proxies[0].name).toBe('Alpha');
+        expect(config['proxy-groups'][0].proxies).toEqual(['Alpha']);
+    });
+
+    it('supports helper prepend-proxies and PROXY_GROUPS placeholders', async () => {
+        const app = createTestApp();
+        const cookie = await login(app);
+        const template = `mixed-port: 7890
+prepend-proxies:
+  - name: 🏠 回家-Reality
+    type: ss
+    server: home.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass
+proxies: "{{PROXIES}}"
+prepend-proxy-groups:
+  - name: 🚀 节点选择
+    type: select
+    proxies:
+      - ⚡ 自动选择
+      - 🇺🇸 美国节点
+      - 🇯🇵 日本节点
+      - 🏠 回家
+      - DIRECT
+  - name: ⚡ 自动选择
+    type: url-test
+    proxies:
+      - 🏠 回家-Reality
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+  - name: 🇺🇸 美国节点
+    type: select
+    proxies: []
+  - name: 🇯🇵 日本节点
+    type: select
+    proxies: []
+  - name: 🏠 回家
+    type: select
+    proxies: []
+proxy-groups: "{{PROXY_GROUPS}}"
+rules:
+  - MATCH,🚀 节点选择
+`;
+        const nodes = [
+            'ss://YWVzLTEyOC1nY206cGFzc0B1cy5leGFtcGxlLmNvbTo0NDM#US-LA',
+            'ss://YWVzLTEyOC1nY206cGFzc0BqcC5leGFtcGxlLmNvbTo0NDM#JP-Tokyo'
+        ].join('\n');
+
+        const res = await app.request('http://localhost/api/render', {
+            method: 'POST',
+            headers: {
+                Cookie: cookie,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                templateContent: template,
+                nodes
+            })
+        });
+
+        expect(res.status).toBe(200);
+        const config = yaml.load(await res.text());
+        expect(config['prepend-proxies']).toBeUndefined();
+        expect(config['prepend-proxy-groups']).toBeUndefined();
+        expect(config.proxies.map(proxy => proxy.name)).toEqual(['🏠 回家-Reality', 'US-LA', 'JP-Tokyo']);
+        const groups = Object.fromEntries(config['proxy-groups'].map(group => [group.name, group]));
+        expect(groups['⚡ 自动选择'].proxies).toEqual(['🏠 回家-Reality', 'US-LA', 'JP-Tokyo']);
+        expect(groups['🇺🇸 美国节点'].proxies).toEqual(['US-LA']);
+        expect(groups['🇯🇵 日本节点'].proxies).toEqual(['JP-Tokyo']);
+        expect(groups['🏠 回家'].proxies).toEqual(['🏠 回家-Reality', 'DIRECT']);
+    });
+
     it('creates a public one-time download link that burns after first use', async () => {
         const app = createTestApp({
             config: {

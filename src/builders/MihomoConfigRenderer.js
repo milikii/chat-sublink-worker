@@ -85,7 +85,7 @@ export async function parseNodeInput(input) {
 export function renderTemplate({ templateContent, proxies, templateName = 'template', now = new Date() }) {
     let parsed;
     try {
-        parsed = yaml.load(String(templateContent || ''));
+        parsed = yaml.load(quoteBarePlaceholders(String(templateContent || '')));
     } catch (error) {
         throw new InvalidPayloadError(`Template YAML is invalid: ${error.message}`);
     }
@@ -94,14 +94,25 @@ export function renderTemplate({ templateContent, proxies, templateName = 'templ
         throw new InvalidPayloadError('Template must be a YAML object');
     }
 
-    const proxyNames = proxies.map(proxy => proxy.name);
+    const allProxies = mergeProxyLists(readPrependProxies(parsed), proxies);
+    const proxyNames = allProxies.map(proxy => proxy.name);
     const proxyNameGroups = buildProxyNameGroups(proxyNames);
     let sawProxiesPlaceholder = false;
-
-    const rendered = replacePlaceholders(parsed, {
-        proxies,
+    const proxyGroups = buildProxyGroupsPlaceholder(parsed, {
+        proxies: allProxies,
         proxyNames,
         proxyNameGroups,
+        templateName,
+        generatedAt: now.toISOString(),
+        proxyGroups: [],
+        markProxiesPlaceholder: () => {}
+    });
+
+    const rendered = replacePlaceholders(parsed, {
+        proxies: allProxies,
+        proxyNames,
+        proxyNameGroups,
+        proxyGroups,
         templateName,
         generatedAt: now.toISOString(),
         markProxiesPlaceholder: () => {
@@ -109,9 +120,9 @@ export function renderTemplate({ templateContent, proxies, templateName = 'templ
         }
     });
 
-    if (!sawProxiesPlaceholder) {
-        throw new InvalidPayloadError('Template must include proxies: "{{PROXIES}}"');
-    }
+    delete rendered['prepend-proxies'];
+    delete rendered['prepend-proxy-groups'];
+    rendered.proxies = normalizeRenderedProxies(rendered, allProxies, sawProxiesPlaceholder);
 
     return rendered;
 }
@@ -216,6 +227,8 @@ function replacePlaceholders(value, context) {
                 return [...context.proxyNameGroups.jp];
             case '{{NAS_PROXY_NAMES}}':
                 return [...context.proxyNameGroups.nas];
+            case '{{PROXY_GROUPS}}':
+                return deepCopy(context.proxyGroups);
             case '{{GENERATED_AT}}':
                 return context.generatedAt;
             case '{{TEMPLATE_NAME}}':
@@ -225,7 +238,12 @@ function replacePlaceholders(value, context) {
         }
     }
     if (Array.isArray(value)) {
-        return value.map(item => replacePlaceholders(item, context));
+        return value.flatMap(item => {
+            const replaced = replacePlaceholders(item, context);
+            return typeof item === 'string' && isPlaceholderToken(item) && Array.isArray(replaced)
+                ? replaced
+                : [replaced];
+        });
     }
     if (value && typeof value === 'object') {
         return Object.fromEntries(
@@ -233,6 +251,131 @@ function replacePlaceholders(value, context) {
         );
     }
     return value;
+}
+
+function isPlaceholderToken(value) {
+    return /^{{[A-Z_]+}}$/.test(String(value || '').trim());
+}
+
+function quoteBarePlaceholders(content) {
+    return content
+        .replace(/(:\s*)({{[A-Z_]+}})(\s*(?:#.*)?$)/gm, '$1"$2"$3')
+        .replace(/^(\s*-\s*)({{[A-Z_]+}})(\s*(?:#.*)?$)/gm, '$1"$2"$3');
+}
+
+function normalizeRenderedProxies(config, generatedProxies, sawProxiesPlaceholder) {
+    const current = config.proxies;
+    if (Array.isArray(current) && current.length === 1 && Array.isArray(current[0])) {
+        return current[0];
+    }
+
+    if (sawProxiesPlaceholder) {
+        return current;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(config, 'proxies') || current == null) {
+        return deepCopy(generatedProxies);
+    }
+
+    if (Array.isArray(current) && current.length === 0) {
+        return deepCopy(generatedProxies);
+    }
+
+    if (typeof current === 'string' && current.trim() === '') {
+        return deepCopy(generatedProxies);
+    }
+
+    throw new InvalidPayloadError('Template proxies must be "{{PROXIES}}", an empty array, or omitted');
+}
+
+function readPrependProxies(config) {
+    const prependProxies = config?.['prepend-proxies'];
+    if (!Array.isArray(prependProxies)) {
+        return [];
+    }
+    return prependProxies.map(normalizeDirectMihomoProxy);
+}
+
+function mergeProxyLists(prependProxies, generatedProxies) {
+    return [
+        ...prependProxies.map(deepCopy),
+        ...generatedProxies.map(deepCopy)
+    ];
+}
+
+function buildProxyGroupsPlaceholder(config, context) {
+    const configuredGroups = config?.['prepend-proxy-groups'];
+    const groups = Array.isArray(configuredGroups)
+        ? configuredGroups.map(group => replacePlaceholders(group, context))
+        : createDefaultProxyGroups(context.proxyNameGroups);
+    return groups.map(group => hydrateProxyGroup(group, context.proxyNameGroups));
+}
+
+function createDefaultProxyGroups(proxyNameGroups) {
+    return [
+        {
+            name: 'PROXY',
+            type: 'select',
+            proxies: ['AUTO', 'US', 'JP', 'DIRECT']
+        },
+        {
+            name: 'AUTO',
+            type: 'url-test',
+            proxies: [...proxyNameGroups.public],
+            url: 'https://www.gstatic.com/generate_204',
+            interval: 300,
+            tolerance: 50
+        },
+        {
+            name: 'US',
+            type: 'select',
+            proxies: [...proxyNameGroups.us]
+        },
+        {
+            name: 'JP',
+            type: 'select',
+            proxies: [...proxyNameGroups.jp]
+        },
+        {
+            name: 'NAS',
+            type: 'select',
+            proxies: [...proxyNameGroups.nas]
+        },
+        {
+            name: 'FCM',
+            type: 'select',
+            proxies: ['PROXY', 'AUTO', 'US', 'JP', 'DIRECT']
+        }
+    ];
+}
+
+function hydrateProxyGroup(group, proxyNameGroups) {
+    if (!group || typeof group !== 'object') {
+        return group;
+    }
+    const copy = deepCopy(group);
+    if (!Array.isArray(copy.proxies)) {
+        return copy;
+    }
+
+    const name = String(copy.name || '');
+    let additions = [];
+    if (/自动|自動|AUTO|url[-_ ]?test/i.test(name)) {
+        additions = proxyNameGroups.public;
+    } else if (/美国|美國|\bUS\b|\bUSA\b|United States|🇺🇸/i.test(name)) {
+        additions = proxyNameGroups.us;
+    } else if (/日本|\bJP\b|Japan|🇯🇵/i.test(name)) {
+        additions = proxyNameGroups.jp;
+    } else if (/NAS|HOME|LAN|回家|家庭|局域网|局域網|🏠/i.test(name)) {
+        additions = proxyNameGroups.nas;
+    }
+
+    copy.proxies = uniqueStrings([...copy.proxies, ...additions]);
+    return copy;
+}
+
+function uniqueStrings(values) {
+    return [...new Set(values.filter(value => typeof value === 'string' && value.trim()))];
 }
 
 function buildProxyNameGroups(proxyNames) {
@@ -276,7 +419,7 @@ const NAS_PROXY_PATTERNS = [
     /home[-_ ]?lan/i,
     /nas[-_ ]?reality/i,
     /reality[-_ ]?nas/i,
-    /家庭|家宽|家寬|局域网|局域網/
+    /回家|家庭|家宽|家寬|局域网|局域網|🏠/
 ];
 
 function convertParsedProxy(proxy) {
