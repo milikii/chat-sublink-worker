@@ -13,6 +13,7 @@
  * @typedef {Object} RuntimeConfig
  * @property {number} [configTtlSeconds]
  * @property {number} [shortLinkTtlSeconds]
+ * @property {number} [oneTimeDownloadTtlSeconds]
  * @property {string} [authSecret]
  * @property {string} [adminUsername]
  * @property {string} [adminPasswordSha256]
@@ -35,7 +36,7 @@ const DEFAULTS = {
  * Normalize optional runtime bindings and provide safe defaults.
  *
  * @param {RuntimeBindings | undefined} runtime
- * @returns {{ kv: KeyValueStore | null, assetFetcher: AssetFetcher | null, logger: Console, config: RuntimeConfig & { configTtlSeconds: number, shortLinkTtlSeconds: number | null } }}
+ * @returns {{ kv: KeyValueStore | null, assetFetcher: AssetFetcher | null, logger: Console, config: RuntimeConfig & { configTtlSeconds: number, shortLinkTtlSeconds: number | null, oneTimeDownloadTtlSeconds: number | null } }}
  */
 export function normalizeRuntime(runtime = {}) {
     return {
@@ -45,6 +46,7 @@ export function normalizeRuntime(runtime = {}) {
         config: {
             configTtlSeconds: runtime.config?.configTtlSeconds ?? DEFAULTS.configTtlSeconds,
             shortLinkTtlSeconds: runtime.config?.shortLinkTtlSeconds ?? null,
+            oneTimeDownloadTtlSeconds: runtime.config?.oneTimeDownloadTtlSeconds ?? runtime.config?.shortLinkTtlSeconds ?? null,
             authSecret: runtime.config?.authSecret,
             adminUsername: runtime.config?.adminUsername,
             adminPasswordSha256: runtime.config?.adminPasswordSha256,

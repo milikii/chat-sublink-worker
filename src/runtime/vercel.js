@@ -12,6 +12,7 @@ export function createVercelRuntime(env = process.env) {
         config: {
             configTtlSeconds: undefined,
             shortLinkTtlSeconds: null,
+            oneTimeDownloadTtlSeconds: parseNumber(env.ONE_TIME_DOWNLOAD_TTL_SECONDS) || undefined,
             authSecret: env.AUTH_SECRET,
             adminUsername: env.ADMIN_USERNAME,
             adminPasswordSha256: env.ADMIN_PASSWORD_SHA256,

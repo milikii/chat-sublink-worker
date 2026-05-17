@@ -7,6 +7,7 @@ import { Workbench } from '../components/Workbench.jsx';
 import { MihomoConfigRenderer, renderTemplate, validateMihomoConfig } from '../builders/MihomoConfigRenderer.js';
 import { TemplateStorageService } from '../services/templateStorageService.js';
 import { AuthService } from '../services/authService.js';
+import { OneTimeDownloadService, parseDownloadToken } from '../services/oneTimeDownloadService.js';
 import { ServiceError, InvalidPayloadError, MissingDependencyError } from '../services/errors.js';
 import { normalizeRuntime } from '../runtime/runtimeConfig.js';
 import { APP_NAME } from '../constants.js';
@@ -15,6 +16,9 @@ import { PREDEFINED_RULE_SETS } from '../config/index.js';
 export function createApp(bindings = {}) {
     const runtime = normalizeRuntime(bindings);
     const templates = new TemplateStorageService(runtime.kv);
+    const downloads = new OneTimeDownloadService(runtime.kv, {
+        ttlSeconds: runtime.config.oneTimeDownloadTtlSeconds
+    });
     const auth = new AuthService(runtime.config);
     const app = new Hono();
 
@@ -46,6 +50,25 @@ export function createApp(bindings = {}) {
     app.post('/auth/logout', (c) => {
         c.header('Set-Cookie', auth.buildLogoutCookie(c.req.url));
         return c.json({ ok: true });
+    });
+
+    app.get('/download/:file', async (c) => {
+        try {
+            const token = parseDownloadToken(c.req.param('file'));
+            const download = await downloads.consume(token);
+            if (!download) {
+                return c.text('Download link expired or already used', 410);
+            }
+            return c.text(download.content, 200, {
+                'Content-Type': download.contentType,
+                'Content-Disposition': `attachment; filename="${escapeHeaderFilename(download.filename)}"`
+            });
+        } catch (error) {
+            if (error instanceof InvalidPayloadError) {
+                return c.text('Download link expired or already used', 410);
+            }
+            return handleError(c, error, runtime.logger);
+        }
     });
 
     app.use('/', requireSession(auth));
@@ -100,14 +123,26 @@ export function createApp(bindings = {}) {
     app.post('/api/render', async (c) => {
         try {
             const body = await readBody(c);
-            const templateContent = await resolveTemplateContent(templates, body);
-            const renderer = new MihomoConfigRenderer({
-                templateContent,
-                templateName: body.templateName || body.templateId || 'template',
-                nodeInput: body.nodes
-            });
-            return c.text(await renderer.render(), 200, {
+            return c.text(await renderMihomoConfig(templates, body), 200, {
                 'Content-Type': 'text/yaml; charset=utf-8'
+            });
+        } catch (error) {
+            return handleError(c, error, runtime.logger);
+        }
+    });
+
+    app.post('/api/render-link', async (c) => {
+        try {
+            const body = await readBody(c);
+            const yaml = await renderMihomoConfig(templates, body);
+            const oneTimeDownload = await downloads.create(yaml, {
+                filename: buildDownloadFilename(body)
+            });
+            return c.json({
+                downloadUrl: new URL(`/download/${oneTimeDownload.token}.yaml`, c.req.url).toString(),
+                expiresInSeconds: oneTimeDownload.expiresInSeconds,
+                expiresAt: oneTimeDownload.expiresAt,
+                filename: oneTimeDownload.filename
             });
         } catch (error) {
             return handleError(c, error, runtime.logger);
@@ -151,6 +186,16 @@ async function resolveTemplateContent(templates, body) {
         throw new InvalidPayloadError('Template not found');
     }
     return template.content;
+}
+
+async function renderMihomoConfig(templates, body) {
+    const templateContent = await resolveTemplateContent(templates, body);
+    const renderer = new MihomoConfigRenderer({
+        templateContent,
+        templateName: body.templateName || body.templateId || 'template',
+        nodeInput: body.nodes
+    });
+    return renderer.render();
 }
 
 function validateTemplateContent(content) {
@@ -213,6 +258,15 @@ function setNoStoreHeaders(c) {
     c.header('Cache-Control', 'no-store');
     c.header('Referrer-Policy', 'no-referrer');
     c.header('X-Content-Type-Options', 'nosniff');
+}
+
+function buildDownloadFilename(body) {
+    const name = String(body?.templateName || body?.templateId || 'mihomo').trim();
+    return `${name || 'mihomo'}.yaml`;
+}
+
+function escapeHeaderFilename(filename) {
+    return String(filename || 'mihomo.yaml').replace(/["\\]/g, '-');
 }
 
 function handleError(c, error, logger) {

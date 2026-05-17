@@ -4,14 +4,43 @@ import { APP_NAME } from '../constants.js';
 
 export const Workbench = () => {
     const script = `
+        async function copyToClipboard(text) {
+            if (!text) return false;
+            if (navigator.clipboard && window.isSecureContext) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    return true;
+                } catch (error) {
+                    // Fall through to the textarea fallback for LAN HTTP pages.
+                }
+            }
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '0';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            try {
+                return document.execCommand('copy');
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        }
+
         window.workbenchData = function () {
             return {
                 templates: [],
-                selectedTemplateId: 'default',
+                selectedTemplateId: 'android-phone',
                 templateName: '',
                 templateContent: '',
                 nodeInput: '',
                 renderedYaml: '',
+                downloadUrl: '',
+                downloadExpiresAt: '',
+                downloadFilename: '',
                 status: '',
                 error: '',
                 loadingTemplates: true,
@@ -101,8 +130,11 @@ export const Workbench = () => {
                     this.error = '';
                     this.status = '';
                     this.renderedYaml = '';
+                    this.downloadUrl = '';
+                    this.downloadExpiresAt = '';
+                    this.downloadFilename = '';
                     try {
-                        const response = await fetch('/api/render', {
+                        const response = await fetch('/api/render-link', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                             body: JSON.stringify({
@@ -114,8 +146,12 @@ export const Workbench = () => {
                         });
                         const text = await response.text();
                         if (!response.ok) throw new Error(text);
-                        this.renderedYaml = text;
-                        this.status = '配置已生成。本次节点没有保存到服务器。';
+                        const payload = JSON.parse(text);
+                        this.downloadUrl = new URL(payload.downloadUrl, window.location.origin).href;
+                        this.downloadExpiresAt = payload.expiresAt || '';
+                        this.downloadFilename = payload.filename || 'mihomo.yaml';
+                        const minutes = Math.max(1, Math.round((payload.expiresInSeconds || 600) / 60));
+                        this.status = '一次性下载链接已生成，' + minutes + ' 分钟内访问一次后失效。';
                     } catch (error) {
                         this.error = error.message || '生成失败';
                     } finally {
@@ -124,25 +160,26 @@ export const Workbench = () => {
                 },
 
                 async copyOutput() {
-                    if (!this.renderedYaml) return;
-                    await navigator.clipboard.writeText(this.renderedYaml);
-                    this.status = '已复制 YAML';
+                    const text = this.downloadUrl || this.renderedYaml;
+                    if (!text) return;
+                    const copied = await copyToClipboard(text);
+                    this.status = copied ? '已复制下载链接' : '复制失败，请手动选择链接';
                 },
 
                 downloadOutput() {
-                    if (!this.renderedYaml) return;
-                    const blob = new Blob([this.renderedYaml], { type: 'text/yaml;charset=utf-8' });
-                    const url = URL.createObjectURL(blob);
+                    if (!this.downloadUrl) return;
                     const link = document.createElement('a');
-                    link.href = url;
-                    link.download = 'mihomo.yaml';
+                    link.href = this.downloadUrl;
+                    link.download = this.downloadFilename || 'mihomo.yaml';
                     link.click();
-                    URL.revokeObjectURL(url);
                 },
 
                 clearSensitive() {
                     this.nodeInput = '';
                     this.renderedYaml = '';
+                    this.downloadUrl = '';
+                    this.downloadExpiresAt = '';
+                    this.downloadFilename = '';
                     this.status = '本次节点输入和输出已从页面清空';
                 },
 
@@ -263,7 +300,14 @@ export const Workbench = () => {
                                         </button>
                                     </div>
                                 </div>
-                                <textarea {...{ 'x-model': 'renderedYaml' }} readonly spellcheck="false" class="w-full min-h-[480px] rounded-md border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm font-mono leading-5" placeholder="生成后的 Mihomo YAML 会显示在这里。"></textarea>
+                                <div class="space-y-2">
+                                    <input {...{ 'x-model': 'downloadUrl' }} readonly spellcheck="false" class="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm font-mono" placeholder="生成后显示一次性下载链接。" />
+                                    <div {...{ 'x-show': 'downloadUrl' }} class="text-xs text-gray-500 dark:text-gray-400">
+                                        <span>首次访问后失效</span>
+                                        <span {...{ 'x-show': 'downloadExpiresAt' }}>，过期时间 </span>
+                                        <span {...{ 'x-show': 'downloadExpiresAt', 'x-text': 'new Date(downloadExpiresAt).toLocaleString()' }}></span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </section>

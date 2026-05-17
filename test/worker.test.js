@@ -154,6 +154,44 @@ describe('Private Mihomo worker', () => {
         );
     });
 
+    it('creates a public one-time download link that burns after first use', async () => {
+        const app = createTestApp({
+            config: {
+                oneTimeDownloadTtlSeconds: 60
+            }
+        });
+        const cookie = await login(app);
+        const template = 'mixed-port: 7890\nproxies: "{{PROXIES}}"\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies: "{{PROXY_NAMES}}"\nrules:\n  - MATCH,PROXY\n';
+
+        const linkRes = await app.request('http://localhost/api/render-link', {
+            method: 'POST',
+            headers: {
+                Cookie: cookie,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                templateName: 'Android Phone',
+                templateContent: template,
+                nodes: 'ss://YWVzLTEyOC1nY206cGFzc0BleGFtcGxlLmNvbTo0NDM#Alpha'
+            })
+        });
+
+        expect(linkRes.status).toBe(200);
+        const payload = await linkRes.json();
+        expect(payload.downloadUrl).toMatch(/^http:\/\/localhost\/download\/[a-zA-Z0-9_-]+\.yaml$/);
+        expect(payload.expiresInSeconds).toBe(60);
+
+        const firstDownload = await app.request(payload.downloadUrl);
+        expect(firstDownload.status).toBe(200);
+        expect(firstDownload.headers.get('content-type')).toContain('text/yaml');
+        expect(firstDownload.headers.get('content-disposition')).toContain('Android-Phone.yaml');
+        const config = yaml.load(await firstDownload.text());
+        expect(config.proxies[0].name).toBe('Alpha');
+
+        const secondDownload = await app.request(payload.downloadUrl);
+        expect(secondDownload.status).toBe(410);
+    });
+
     it('rejects proxy providers so templates cannot retain subscription sources', async () => {
         const app = createTestApp();
         const cookie = await login(app);
