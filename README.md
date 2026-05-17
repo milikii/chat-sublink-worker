@@ -32,10 +32,23 @@ proxy-groups:
 
 内置模板：
 
-- `default`: 日常规则模式，Fake-IP DNS，手选 + 自动测速。
-- `minimal`: 最小配置，只保留手选组和 `MATCH`。
-- `alpha-xhttp`: 面向 Mihomo alpha 节点，保留并组织 xhttp / ECH / xudp 等新字段。
-- `lan-dashboard`: 局域网设备使用，开启 LAN 入口和本地 external-controller。
+- `android-phone`: 安卓手机模板，启用 TUN，局域网地址走 `NAS` 分组，`NAS` 分组会自动匹配节点名包含 `NAS` / `HOME` / `家庭` / `局域网` 的节点，并保留 `DIRECT` 兜底。
+- `windows`: Windows 模板，启用 TUN，局域网直连。
+- `nas-bypass-router`: NAS 旁路由模板，开启 `mixed-port` / `redir-port` / `tproxy-port` / LAN DNS，不启用 TUN，不主动接管宿主机网络。
+
+节点名分组占位符：
+
+- `{{PUBLIC_PROXY_NAMES}}`: 排除 NAS/Home 节点后的普通代理节点。
+- `{{US_PROXY_NAMES}}`: 自动匹配美国节点；没有匹配时回落到普通代理节点。
+- `{{JP_PROXY_NAMES}}`: 自动匹配日本节点；没有匹配时回落到普通代理节点。
+- `{{NAS_PROXY_NAMES}}`: 自动匹配 NAS/Home 节点，并追加 `DIRECT` 兜底。
+
+内置分流：
+
+- PT 域名列表 `https://github.com/milikii/sing-box-geosite/raw/refs/heads/main/pt.list` 直连。
+- FCM 域名和 IP 走 `FCM` 分组，默认代理。
+- `.jp` / `co.jp` / 常见日本站点和 `GEOSITE,geolocation-jp` 走 `JP` 分组。
+- 中国域名/IP 直连，其余全部走 `PROXY`。
 
 ## 环境变量
 

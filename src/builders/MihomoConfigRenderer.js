@@ -95,11 +95,13 @@ export function renderTemplate({ templateContent, proxies, templateName = 'templ
     }
 
     const proxyNames = proxies.map(proxy => proxy.name);
+    const proxyNameGroups = buildProxyNameGroups(proxyNames);
     let sawProxiesPlaceholder = false;
 
     const rendered = replacePlaceholders(parsed, {
         proxies,
         proxyNames,
+        proxyNameGroups,
         templateName,
         generatedAt: now.toISOString(),
         markProxiesPlaceholder: () => {
@@ -206,6 +208,14 @@ function replacePlaceholders(value, context) {
             case '{{PROXY_NAMES}}':
             case '{{PROXY_NAMES_INLINE}}':
                 return [...context.proxyNames];
+            case '{{PUBLIC_PROXY_NAMES}}':
+                return [...context.proxyNameGroups.public];
+            case '{{US_PROXY_NAMES}}':
+                return [...context.proxyNameGroups.us];
+            case '{{JP_PROXY_NAMES}}':
+                return [...context.proxyNameGroups.jp];
+            case '{{NAS_PROXY_NAMES}}':
+                return [...context.proxyNameGroups.nas];
             case '{{GENERATED_AT}}':
                 return context.generatedAt;
             case '{{TEMPLATE_NAME}}':
@@ -224,6 +234,50 @@ function replacePlaceholders(value, context) {
     }
     return value;
 }
+
+function buildProxyNameGroups(proxyNames) {
+    const nasMatches = selectProxyNames(proxyNames, NAS_PROXY_PATTERNS, []);
+    const publicProxyNames = proxyNames.filter(name => !nasMatches.includes(name));
+    const publicFallback = publicProxyNames.length > 0 ? publicProxyNames : proxyNames;
+    const us = selectProxyNames(proxyNames, [
+        /\bUS\b/i,
+        /\bUSA\b/i,
+        /United States/i,
+        /America/i,
+        /美国|美國|美西|美东|美東|洛杉矶|洛杉磯|圣何塞|聖何塞|西雅图|西雅圖|纽约|紐約/,
+        /Los Angeles|San Jose|Seattle|New York|Dallas|Ashburn|Chicago/i,
+        /🇺🇸/
+    ], publicFallback);
+    const jp = selectProxyNames(proxyNames, [
+        /\bJP\b/i,
+        /Japan/i,
+        /日本|东京|東京|大阪/,
+        /Tokyo|Osaka/i,
+        /🇯🇵/
+    ], publicFallback);
+
+    return {
+        public: publicFallback,
+        us,
+        jp,
+        nas: [...nasMatches, 'DIRECT']
+    };
+}
+
+function selectProxyNames(proxyNames, patterns, fallback) {
+    const selected = proxyNames.filter(name => patterns.some(pattern => pattern.test(name)));
+    return selected.length > 0 ? selected : [...fallback];
+}
+
+const NAS_PROXY_PATTERNS = [
+    /\bNAS\b/i,
+    /\bHOME\b/i,
+    /\bLAN\b/i,
+    /home[-_ ]?lan/i,
+    /nas[-_ ]?reality/i,
+    /reality[-_ ]?nas/i,
+    /家庭|家宽|家寬|局域网|局域網/
+];
 
 function convertParsedProxy(proxy) {
     if (isMihomoProxyObject(proxy)) {

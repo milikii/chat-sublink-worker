@@ -64,11 +64,49 @@ describe('Private Mihomo worker', () => {
         expect(res.status).toBe(200);
         const templates = await res.json();
         expect(templates.map(template => template.id)).toEqual(expect.arrayContaining([
-            'default',
-            'minimal',
-            'alpha-xhttp',
-            'lan-dashboard'
+            'android-phone',
+            'windows',
+            'nas-bypass-router'
         ]));
+    });
+
+    it('renders the Android template with US, JP, and NAS groups', async () => {
+        const app = createTestApp();
+        const cookie = await login(app);
+        const templateRes = await app.request('http://localhost/api/templates/android-phone', {
+            headers: { Cookie: cookie }
+        });
+        const template = await templateRes.json();
+        const nodes = [
+            'ss://YWVzLTEyOC1nY206cGFzc0BleGFtcGxlLmNvbTo0NDM#US-LA',
+            'ss://YWVzLTEyOC1nY206cGFzc0BqcC5leGFtcGxlLmNvbTo0NDM#JP-Tokyo',
+            'ss://YWVzLTEyOC1nY206cGFzc0BuYXMuZXhhbXBsZS5jb206NDQz#NAS-Reality'
+        ].join('\n');
+
+        const res = await app.request('http://localhost/api/render', {
+            method: 'POST',
+            headers: {
+                Cookie: cookie,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                templateContent: template.content,
+                nodes
+            })
+        });
+
+        expect(res.status).toBe(200);
+        const config = yaml.load(await res.text());
+        const groupByName = Object.fromEntries(config['proxy-groups'].map(group => [group.name, group]));
+        expect(groupByName.AUTO.proxies).toEqual(['US-LA', 'JP-Tokyo']);
+        expect(groupByName.US.proxies).toEqual(['US-LA']);
+        expect(groupByName.JP.proxies).toEqual(['JP-Tokyo']);
+        expect(groupByName.NAS.proxies).toEqual(['NAS-Reality', 'DIRECT']);
+        expect(config.rules).toContain('RULE-SET,pt-direct,DIRECT');
+        expect(config.rules).toContain('DOMAIN,mtalk.google.com,FCM');
+        expect(config.rules).toContain('DOMAIN-SUFFIX,jp,JP');
+        expect(config.rules).toContain('GEOSITE,cn,DIRECT');
+        expect(config.rules).toContain('MATCH,PROXY');
     });
 
     it('renders Mihomo YAML via authenticated POST without storing nodes', async () => {
